@@ -1,7 +1,13 @@
-from urllib.parse import parse_qs
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
+from PyQt5.QtGui import QResizeEvent, QPixmap
+from PyQt5.QtWidgets import (
+    QMainWindow,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+    QApplication,
+)
+from PyQt5.QtCore import QThread, pyqtSignal, QObject, Qt
 from bs4 import BeautifulSoup
 from io import BytesIO
 from PIL import Image, ImageQt
@@ -9,35 +15,34 @@ from PIL import Image, ImageQt
 import sys
 import requests
 
-
 URL = "https://c.xkcd.com/random/comic/"
-
-comic_pixmap = None
-mutex = QMutex()
 
 
 class MainWindow(QMainWindow):
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
-        self.setWindowTitle("xkcd viewer by rust")
+        self.setWindowTitle("xkcd viewer v1.0 by rust")
 
-        # Set up thread for picture download
+        self.comic_pixmap = None
+
+        # Set up worker thread for picture fetch and display
         self.thread = QThread()
         self.worker = Worker()
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.resizeImage)
-        self.worker.finished.connect(lambda: self.button.setEnabled(True))
         self.worker.starting.connect(lambda: self.button.setEnabled(False))
         self.worker.scraping_url.connect(
-            lambda: self.button.setText("Scraping HTML for comic URL...")
+            lambda: self.button.setText("Scraping xkcd.com for comic URL...")
         )
         self.worker.download_pic.connect(
             lambda: self.button.setText("Downloading comic...")
         )
-        self.thread.finished.connect(lambda: self.button.setText("New comic!"))
+        self.worker.pass_pic.connect(self.updateImage)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.resizeImage)
+        self.worker.finished.connect(lambda: self.button.setEnabled(True))
+        self.thread.finished.connect(lambda: self.button.setText("New random comic!"))
 
         # Set up center image widget
         self.pic = QLabel(self)
@@ -45,11 +50,11 @@ class MainWindow(QMainWindow):
         self.pic.setAlignment(Qt.AlignCenter)
 
         # Set up button widget
-        self.button = QPushButton("New comic!")
+        self.button = QPushButton("New random comic!")
         self.button.setCheckable(True)
         self.button.clicked.connect(self.setImage)
 
-        # Layouting
+        # Set up layouting
         self.layout = QVBoxLayout()
         self.layout.addWidget(self.pic)
         self.layout.addWidget(self.button)
@@ -64,18 +69,18 @@ class MainWindow(QMainWindow):
         self.resizeImage()
 
     def resizeImage(self):
-        global comic_pixmap
-
-        if comic_pixmap is not None and mutex.tryLock:
+        if self.comic_pixmap is not None:
             self.pic.setPixmap(
-                comic_pixmap.scaled(
+                self.comic_pixmap.scaled(
                     self.pic.width(),
                     self.pic.height(),
                     Qt.KeepAspectRatio,
                     Qt.SmoothTransformation,
                 )
             )
-            mutex.unlock()
+
+    def updateImage(self, pixmap):
+        self.comic_pixmap = pixmap
 
     def setImage(self):
         self.thread.start()
@@ -85,11 +90,10 @@ class Worker(QObject):
     starting = pyqtSignal()
     scraping_url = pyqtSignal()
     download_pic = pyqtSignal()
+    pass_pic = pyqtSignal(QPixmap)
     finished = pyqtSignal()
 
     def run(self):
-        global comic_pixmap
-
         self.scraping_url.emit()
 
         webpage_html = requests.get(URL)
@@ -111,11 +115,11 @@ class Worker(QObject):
 
         comic_raw = Image.open(BytesIO(comic_bytestring.content))
 
-        mutex.lock()
         comic_pixmap = ImageQt.toqpixmap(comic_raw)
-        mutex.unlock()
 
-        self.finished.emit()  # Signal finish!!
+        self.pass_pic.emit(comic_pixmap)
+
+        self.finished.emit()
 
 
 app = QApplication(sys.argv)
