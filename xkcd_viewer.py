@@ -28,8 +28,8 @@ class MainWindow(QMainWindow):
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.thread.quit)
-        self.thread.finished.connect(self.resizeImage)
-        self.thread.finished.connect(lambda: self.button.setEnabled(True))
+        self.worker.finished.connect(self.resizeImage)
+        self.worker.finished.connect(lambda: self.button.setEnabled(True))
         self.worker.starting.connect(lambda: self.button.setEnabled(False))
         self.worker.scraping_url.connect(
             lambda: self.button.setText("Scraping HTML for comic URL...")
