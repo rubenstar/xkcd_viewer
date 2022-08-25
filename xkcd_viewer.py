@@ -1,4 +1,4 @@
-from PyQt5.QtGui import QResizeEvent, QPixmap
+from re import I
 from PyQt5.QtWidgets import (
     QMainWindow,
     QLabel,
@@ -7,10 +7,11 @@ from PyQt5.QtWidgets import (
     QWidget,
     QApplication,
 )
-from PyQt5.QtCore import QThread, pyqtSignal, QObject, Qt
-from bs4 import BeautifulSoup
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QObject
+from PyQt5.QtGui import QResizeEvent
 from io import BytesIO
 from PIL import Image, ImageQt
+from bs4 import BeautifulSoup
 
 import sys
 import requests
@@ -19,40 +20,25 @@ URL = "https://c.xkcd.com/random/comic/"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, *args, **kwargs):
-        super(MainWindow, self).__init__(*args, **kwargs)
+
+    receivedPic = pyqtSignal()
+
+    def __init__(self):
+        super(MainWindow, self).__init__()
+
+        self.pic_pixmap = None
 
         self.setWindowTitle("xkcd viewer v1.0 by rust")
 
-        self.comic_pixmap = None
-
-        # Set up worker thread for picture fetch and display
-        self.thread = QThread()
-        self.worker = Worker()
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.worker.starting.connect(lambda: self.button.setEnabled(False))
-        self.worker.scraping_url.connect(
-            lambda: self.button.setText("Scraping xkcd.com for comic URL...")
-        )
-        self.worker.download_pic.connect(
-            lambda: self.button.setText("Downloading comic...")
-        )
-        self.worker.pass_pic.connect(self.updateImage)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.resizeImage)
-        self.worker.finished.connect(lambda: self.button.setEnabled(True))
-        self.thread.finished.connect(lambda: self.button.setText("New random comic!"))
+        # Set up button widget
+        self.button = QPushButton("New comic!")
+        self.button.setCheckable(True)
+        self.button.clicked.connect(self.downloadThreadStart)
 
         # Set up center image widget
         self.pic = QLabel(self)
         self.pic.setMinimumSize(1, 1)
         self.pic.setAlignment(Qt.AlignCenter)
-
-        # Set up button widget
-        self.button = QPushButton("New random comic!")
-        self.button.setCheckable(True)
-        self.button.clicked.connect(self.setImage)
 
         # Set up layouting
         self.layout = QVBoxLayout()
@@ -64,14 +50,10 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self.widget)
 
-    # Overwrite resizeEvent
-    def resizeEvent(self, a0: QResizeEvent):
-        self.resizeImage()
-
-    def resizeImage(self):
-        if self.comic_pixmap is not None:
+    def loadImage(self):
+        if self.pic_pixmap is not None:
             self.pic.setPixmap(
-                self.comic_pixmap.scaled(
+                self.pic_pixmap.scaled(
                     self.pic.width(),
                     self.pic.height(),
                     Qt.KeepAspectRatio,
@@ -79,52 +61,86 @@ class MainWindow(QMainWindow):
                 )
             )
 
-    def updateImage(self, pixmap):
-        self.comic_pixmap = pixmap
+    def updateImage(self, pic_pixmap):
+        self.pic_pixmap = pic_pixmap
+        self.receivedPic.emit()  # Signal back to thread/worker that we're done
 
-    def setImage(self):
-        self.thread.start()
+        self.loadImage()
+
+    def downloadThreadStart(self):
+        self.downloadThread = DownloadThread()
+        self.downloadThread.startThread()
+
+    # Overwrite resizeEvent
+    def resizeEvent(self, a0: QResizeEvent):
+        self.loadImage()
 
 
-class Worker(QObject):
-    starting = pyqtSignal()
-    scraping_url = pyqtSignal()
-    download_pic = pyqtSignal()
-    pass_pic = pyqtSignal(QPixmap)
-    finished = pyqtSignal()
+class DownloadThread(QThread):
+    def __init__(self):
+        super(DownloadThread, self).__init__()
 
-    def run(self):
-        self.scraping_url.emit()
+    def startThread(self):
+        self.worker = DownloadWorker()
+        self.worker.moveToThread(self)
 
+        # Connects
+        self.started.connect(self.worker.downloadPicRaw)
+        self.started.connect(lambda: window.button.setEnabled(False))
+        self.worker.downloadDone.connect(window.updateImage)
+        self.worker.scrapingUrl.connect(
+            lambda: window.button.setText("Scraping xkcd.com for comic URL...")
+        )
+        self.worker.downloadingPic.connect(
+            lambda: window.button.setText("Downloading comic...")
+        )
+
+        # Cleanup
+        window.receivedPic.connect(self.quit)  # Shutdown thread
+        window.receivedPic.connect(
+            self.worker.deleteLater
+        )  # Schedule worker for deletion
+        self.finished.connect(self.deleteLater)  # Schedule thread itself for deletion
+        self.finished.connect(lambda: window.button.setEnabled(True))
+        self.finished.connect(lambda: window.button.setChecked(False))
+        self.finished.connect(lambda: window.button.setText("New comic!"))
+
+        self.start()  # Start the thread
+
+
+class DownloadWorker(QObject):
+    scrapingUrl = pyqtSignal()
+    downloadingPic = pyqtSignal()
+    downloadDone = pyqtSignal(object)
+
+    def downloadPicRaw(self):
+        self.scrapingUrl.emit()
         webpage_html = requests.get(URL)
         webpage_soup = BeautifulSoup(webpage_html.content, "html5lib")
 
         table = webpage_soup.find("div", attrs={"id": "comic"})
 
         if table.img.has_attr("srcset"):
-            comic_url = table.img["srcset"]
-            comic_url = comic_url[: len(comic_url) - 3]  # Remove " 2x" at end of string
+            pic_url = table.img["srcset"]
+            pic_url = pic_url[: len(pic_url) - 3]  # Remove " 2x" at end of string
         else:
-            comic_url = table.img["src"]
+            pic_url = table.img["src"]
 
-        comic_url = "http:" + comic_url
-        print(comic_url)
+        pic_url = "http:" + pic_url
+        print(pic_url)
 
-        self.download_pic.emit()
-        comic_bytestring = requests.get(comic_url)
+        self.downloadingPic.emit()
+        pic_bytestring = requests.get(pic_url)
+        pic_raw = Image.open(BytesIO(pic_bytestring.content))
+        pic_pixmap = ImageQt.toqpixmap(pic_raw)
 
-        comic_raw = Image.open(BytesIO(comic_bytestring.content))
-
-        comic_pixmap = ImageQt.toqpixmap(comic_raw)
-
-        self.pass_pic.emit(comic_pixmap)
-
-        self.finished.emit()
+        self.downloadDone.emit(pic_pixmap)
 
 
-app = QApplication(sys.argv)
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
 
-window = MainWindow()
-window.show()
+    window = MainWindow()
+    window.show()
 
-app.exec_()
+    app.exec_()
