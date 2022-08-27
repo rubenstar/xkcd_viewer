@@ -1,20 +1,17 @@
-from re import I
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QMainWindow,
     QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
-    QApplication,
+    QApplication
 )
-from PyQt5.QtCore import QThread, pyqtSignal, Qt, QObject
-from PyQt5.QtGui import QResizeEvent
-from io import BytesIO
-from PIL import Image, ImageQt
-from bs4 import BeautifulSoup
-
+from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt
+from PyQt6.QtGui import QPixmap, QResizeEvent
 import sys
+from urllib import request
 import requests
+from bs4 import BeautifulSoup
 
 URL = "https://c.xkcd.com/random/comic/"
 
@@ -38,7 +35,7 @@ class MainWindow(QMainWindow):
         # Set up center image widget
         self.pic = QLabel(self)
         self.pic.setMinimumSize(1, 1)
-        self.pic.setAlignment(Qt.AlignCenter)
+        self.pic.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Set up layouting
         self.layout = QVBoxLayout()
@@ -56,18 +53,21 @@ class MainWindow(QMainWindow):
                 self.pic_pixmap.scaled(
                     self.pic.width(),
                     self.pic.height(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
                 )
             )
 
-    def updateImage(self, pic_pixmap):
-        self.pic_pixmap = pic_pixmap
+    def updateImage(self, filepath):
+        self.pic_pixmap = QPixmap(filepath)
         self.receivedPic.emit()  # Signal back to thread/worker that we're done
+        self.button.setEnabled(True)
+        self.button.setChecked(False)
 
         self.loadImage()
 
     def downloadThreadStart(self):
+        self.button.setEnabled(False)
         self.downloadThread = DownloadThread()
         self.downloadThread.startThread()
 
@@ -86,7 +86,6 @@ class DownloadThread(QThread):
 
         # Connects
         self.started.connect(self.worker.downloadPicRaw)
-        self.started.connect(lambda: window.button.setEnabled(False))
         self.worker.downloadDone.connect(window.updateImage)
         self.worker.scrapingUrl.connect(
             lambda: window.button.setText("Scraping xkcd.com for comic URL...")
@@ -101,8 +100,6 @@ class DownloadThread(QThread):
             self.worker.deleteLater
         )  # Schedule worker for deletion
         self.finished.connect(self.deleteLater)  # Schedule thread itself for deletion
-        self.finished.connect(lambda: window.button.setEnabled(True))
-        self.finished.connect(lambda: window.button.setChecked(False))
         self.finished.connect(lambda: window.button.setText("New comic!"))
 
         self.start()  # Start the thread
@@ -130,11 +127,13 @@ class DownloadWorker(QObject):
         print(pic_url)
 
         self.downloadingPic.emit()
-        pic_bytestring = requests.get(pic_url)
-        pic_raw = Image.open(BytesIO(pic_bytestring.content))
-        pic_pixmap = ImageQt.toqpixmap(pic_raw)
 
-        self.downloadDone.emit(pic_pixmap)
+        file_tuple = request.urlretrieve(pic_url)
+        filepath = file_tuple[0]
+
+        print(f"Temporary filepath: {filepath}")
+
+        self.downloadDone.emit(filepath)
 
 
 if __name__ == "__main__":
@@ -143,4 +142,4 @@ if __name__ == "__main__":
     window = MainWindow()
     window.show()
 
-    app.exec_()
+    app.exec()
