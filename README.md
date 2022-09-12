@@ -8,7 +8,7 @@ timeframes = [QTime(9, 0, 0, 0), QTime(12, 0, 0, 0), QTime(15, 0, 0, 0)] #QTime(
 
 Install dependencies
 ```shell
-python3 -m pip install PyQt6 bs4 requests html5lib
+python3 -m pip install PyQt6 bs4 requests
 ```
 
 Run with 
