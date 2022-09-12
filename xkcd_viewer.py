@@ -1,3 +1,4 @@
+import string
 from PyQt6.QtWidgets import (
     QMainWindow,
     QLabel,
@@ -51,30 +52,33 @@ class DownloadThread(QThread):
 class DownloadWorker(QObject):
     scrapingUrl = pyqtSignal()
     downloadingPic = pyqtSignal()
-    downloadDone = pyqtSignal(object)
+    downloadDone = pyqtSignal(object, object, object)
 
     def downloadPicRaw(self):
         self.scrapingUrl.emit()
         webpage_html = requests.get(URL)
-        webpage_soup = BeautifulSoup(webpage_html.content, "html5lib")
+        webpage_soup = BeautifulSoup(webpage_html.content, "html.parser")
 
-        table = webpage_soup.find("div", attrs={"id": "comic"})
+        comic_html = webpage_soup.find(id="comic")
+        main_title = webpage_soup.find(id="ctitle").string
+        if comic_html.img["title"] is not None:
+            sub_title = str(comic_html.img["title"])
 
-        if table.img.has_attr("srcset"):
-            pic_url = table.img["srcset"]
-            pic_url = pic_url[: len(pic_url) - 3]  # Remove " 2x" at end of string
+        if comic_html.img.has_attr("srcset"):
+            comic_url = comic_html.img["srcset"]
+            comic_url = comic_url[: len(comic_url) - 3]  # Remove "2x" at end of string
         else:
-            pic_url = table.img["src"]
+            comic_url = comic_html.img["src"]
 
-        pic_url = "http:" + pic_url
-        print(pic_url)
+        comic_url = "http:" + comic_url
+        print(comic_url)
 
         self.downloadingPic.emit()
 
-        file_tuple = request.urlretrieve(pic_url)
+        file_tuple = request.urlretrieve(comic_url)
         filepath = file_tuple[0]
 
-        self.downloadDone.emit(filepath)
+        self.downloadDone.emit(filepath, main_title, sub_title)
 
 
 class MainWindow(QMainWindow):
@@ -85,13 +89,16 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__()
 
         self.pic_pixmap = None
+        self.main_title_string = None
+        self.sub_title_string = None
         self.old_timeframe_idx = 0
         self.print_string = ""
 
-        self.setWindowTitle("xkcd viewer v1.0 by rust")
+        self.setWindowTitle("xkcd viewer (github: rubenstar/xkcd_viewer)")
 
         # Set up button widget
         self.button = QPushButton("Click for new comic now!")
+        self.button.setFixedHeight(30)
         self.button.setCheckable(True)
         self.button.clicked.connect(self.downloadThreadStart)
 
@@ -100,10 +107,20 @@ class MainWindow(QMainWindow):
         self.pic.setMinimumSize(1, 1)
         self.pic.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Set up text widget
-        self.text = QLabel(self)
-        self.text.setFixedHeight(30)
-        self.text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Set up text widgets
+        self.time_text = QLabel(self)
+        self.time_text.setFixedHeight(30)
+        self.time_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.main_title_text = QLabel(self)
+        self.main_title_text.setFixedHeight(40)
+        self.main_title_text.setAlignment(Qt.AlignmentFlag.AlignBottom)
+        self.main_title_text.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        self.sub_title_text = QLabel(self)
+        self.sub_title_text.setFixedHeight(40)
+        self.sub_title_text.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.sub_title_text.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         # Start a timer
         self.timer = QTimer()
@@ -114,8 +131,10 @@ class MainWindow(QMainWindow):
 
         # Set up layouting
         self.layout = QVBoxLayout()
+        self.layout.addWidget(self.main_title_text)
         self.layout.addWidget(self.pic)
-        self.layout.addWidget(self.text)
+        self.layout.addWidget(self.sub_title_text)
+        self.layout.addWidget(self.time_text)
         self.layout.addWidget(self.button)
 
         self.widget = QWidget()
@@ -127,6 +146,8 @@ class MainWindow(QMainWindow):
         no_of_timeframes = len(timeframes)
         self.current_time = self.time.currentTime()
 
+        # Initial value. If current time is smaller then the first timeframe, its the same as bigger than the last
+        self.current_timeframe_idx = len(timeframes)
         for i in range(no_of_timeframes):
             if self.current_time > timeframes[i]:
                 self.current_timeframe_idx = i
@@ -156,7 +177,7 @@ class MainWindow(QMainWindow):
             + " minute(s).)"
         )
 
-        self.text.setText(print_string)
+        self.time_text.setText(print_string)
 
     def loadImage(self):
         if self.pic_pixmap is not None:
@@ -169,13 +190,33 @@ class MainWindow(QMainWindow):
                 )
             )
 
-    def updateImage(self, filepath):
+    def loadTitle(self):
+        if self.main_title_string is not None:
+            self.main_title_text.setText(
+                "<h1><strong>" + self.main_title_string + "</strong></h1>"
+            )
+        else:
+            self.main_title_text.setText(
+                "<h1><strong> No main title found :( </strong></h1>"
+            )
+
+        if self.sub_title_string is not None:
+            self.sub_title_text.setText(
+                "<h3><strong>" + self.sub_title_string + "<h3><strong>"
+            )
+        else:
+            self.sub_title_text.setText("<h6><strong> No subtitle found :(<h6><strong>")
+
+    def updateImage(self, filepath, main_title, sub_title):
         self.pic_pixmap = QPixmap(filepath)
+        self.main_title_string = main_title
+        self.sub_title_string = sub_title
         self.receivedPic.emit()  # Signal back to thread/worker that we're done
         self.button.setEnabled(True)
         self.button.setChecked(False)
 
         self.loadImage()
+        self.loadTitle()
 
     def downloadThreadStart(self):
         self.button.setEnabled(False)
