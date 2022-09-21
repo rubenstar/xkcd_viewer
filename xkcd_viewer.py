@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QApplication,
+    QSizePolicy,
+    QLayout,
 )
 from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt, QTimer, QTime
 from PyQt6.QtGui import QPixmap, QResizeEvent
@@ -98,29 +100,33 @@ class MainWindow(QMainWindow):
 
         # Set up button widget
         self.button = QPushButton("Click for new comic now!")
-        self.button.setFixedHeight(30)
         self.button.setCheckable(True)
         self.button.clicked.connect(self.downloadThreadStart)
 
         # Set up center image widget
         self.pic = QLabel(self)
-        self.pic.setMinimumSize(1, 1)
         self.pic.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pic.setMinimumSize(1, 1)
 
         # Set up text widgets
-        self.time_text = QLabel(self)
-        self.time_text.setFixedHeight(30)
-        self.time_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         self.main_title_text = QLabel(self)
         self.main_title_text.setFixedHeight(40)
-        self.main_title_text.setAlignment(Qt.AlignmentFlag.AlignBottom)
-        self.main_title_text.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.main_title_text.setAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom
+        )
 
         self.sub_title_text = QLabel(self)
-        self.sub_title_text.setFixedHeight(40)
-        self.sub_title_text.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.sub_title_text.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.sub_title_text.setWordWrap(True)
+        self.sub_title_text.setMaximumHeight(40)
+        self.sub_title_text.setAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+        )
+
+        self.time_text = QLabel(self)
+        self.time_text.setFixedHeight(30)
+        self.time_text.setAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom
+        )
 
         # Start a timer
         self.timer = QTimer()
@@ -147,7 +153,7 @@ class MainWindow(QMainWindow):
         self.current_time = self.time.currentTime()
 
         # Initial value. If current time is smaller then the first timeframe, its the same as bigger than the last
-        self.current_timeframe_idx = len(timeframes)
+        self.current_timeframe_idx = len(timeframes) - 1
         for i in range(no_of_timeframes):
             if self.current_time > timeframes[i]:
                 self.current_timeframe_idx = i
@@ -226,6 +232,10 @@ class MainWindow(QMainWindow):
     # Overwrite resizeEvent
     def resizeEvent(self, a0: QResizeEvent):
         self.loadImage()
+        print("Title_text: " + str(self.main_title_text.sizeHint()))
+        print("Pic: " + str(self.pic.sizeHint()))
+        print("Sub_text: " + str(self.sub_title_text.sizeHint()))
+        print("Time_text: " + str(self.time_text.sizeHint()))
 
 
 if __name__ == "__main__":
