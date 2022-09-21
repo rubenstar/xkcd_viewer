@@ -232,10 +232,6 @@ class MainWindow(QMainWindow):
     # Overwrite resizeEvent
     def resizeEvent(self, a0: QResizeEvent):
         self.loadImage()
-        print("Title_text: " + str(self.main_title_text.sizeHint()))
-        print("Pic: " + str(self.pic.sizeHint()))
-        print("Sub_text: " + str(self.sub_title_text.sizeHint()))
-        print("Time_text: " + str(self.time_text.sizeHint()))
 
 
 if __name__ == "__main__":
